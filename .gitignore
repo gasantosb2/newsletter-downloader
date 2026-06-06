@@ -1,0 +1,32 @@
+# Downloads gerados pela ferramenta
+downloads/
+
+# Ambientes virtuais
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# Cache e bytecode do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Cookies (qualquer arquivo de cookies, em qualquer pasta)
+*cookies*
+*.cookies
+cookies.txt
+
+# Arquivos de configuração local / segredos
+.env
+
+# Lixo do sistema operacional
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# IDEs / editores
+.vscode/
+.idea/
+*.swp
