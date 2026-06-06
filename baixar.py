@@ -30,8 +30,11 @@ from pathlib import Path
 # Pasta base onde tudo é salvo (criada dentro do projeto).
 PASTA_BASE = Path(__file__).resolve().parent / "downloads"
 
-# Idiomas de legenda desejados. O ".*" pega variantes (pt, pt-BR, en, en-US...).
-IDIOMAS_LEGENDA = "pt.*,en.*"
+# Idiomas de legenda desejados. Lista explícita (sem curinga ".*"): pegamos
+# português e inglês — manuais e automáticas — incluindo as variantes mais
+# comuns. Evitamos o curinga porque ele casaria com centenas de TRADUÇÕES
+# automáticas (pt-ar, en-zh-CN, ...), o que estoura o limite do YouTube (HTTP 429).
+IDIOMAS_LEGENDA = "pt,pt-BR,pt-PT,pt-orig,en,en-US,en-orig"
 
 # Template de nome usado pelo yt-dlp: cria uma subpasta "AAAA-MM-DD_titulo"
 # e, dentro dela, arquivos com o mesmo nome base. A flag --windows-filenames
@@ -90,6 +93,10 @@ def args_comuns(usar_cookies: bool) -> list[str]:
         "--output", TEMPLATE_SAIDA,   # subpasta + nome do arquivo
         "--no-overwrites",            # não re-baixa o que já existe
         "--ignore-config",            # ignora config global do yt-dlp do usuário
+        # Robustez contra bloqueios temporários (HTTP 429) e instabilidade de rede:
+        "--retries", "5",             # tenta de novo cada download que falhar
+        "--extractor-retries", "3",   # idem para a etapa de extração de metadados
+        "--sleep-subtitles", "1",     # pausa de 1s entre cada legenda (evita 429)
     ]
     if usar_cookies:
         # Pega os cookies do Chrome para acessar sites que exigem login
@@ -129,21 +136,23 @@ def descobrir_pasta(url: str, usar_cookies: bool) -> Path | None:
     return Path(linha[0]).parent
 
 
-def baixar_audio_e_legendas(url: str, usar_cookies: bool) -> None:
-    """Baixa o melhor áudio em mp3 e as legendas (pt/en) em srt."""
+def baixar_audio(url: str, usar_cookies: bool, com_legendas: bool) -> None:
+    """Baixa o melhor áudio em mp3. Se `com_legendas`, também as legendas (srt)."""
     cmd = args_comuns(usar_cookies) + [
         # --- Áudio ---
         "--format", "bestaudio/best",
         "--extract-audio",
         "--audio-format", "mp3",
         "--audio-quality", "0",        # 0 = melhor qualidade VBR
-        # --- Legendas ---
-        "--write-subs",                # legendas manuais (feitas por humanos)
-        "--write-auto-subs",           # legendas automáticas (geradas por IA)
-        "--sub-langs", IDIOMAS_LEGENDA,
-        "--convert-subs", "srt",       # converte qualquer formato de legenda p/ srt
-        url,
     ]
+    if com_legendas:
+        cmd += [
+            "--write-subs",            # legendas manuais (feitas por humanos)
+            "--write-auto-subs",       # legendas automáticas (geradas por IA)
+            "--sub-langs", IDIOMAS_LEGENDA,
+            "--convert-subs", "srt",   # converte qualquer formato de legenda p/ srt
+        ]
+    cmd += [url]
     # check=True faz lançar exceção se o yt-dlp retornar erro.
     subprocess.run(cmd, check=True)
 
@@ -194,8 +203,8 @@ def main() -> None:
     usar_cookies = not args.no_cookies
     PASTA_BASE.mkdir(parents=True, exist_ok=True)
 
-    sucessos: list[tuple[str, str]] = []   # (url, pasta)
-    falhas: list[tuple[str, str]] = []     # (url, motivo)
+    sucessos: list[tuple[str, str, bool]] = []   # (url, pasta, legendas_ok)
+    falhas: list[tuple[str, str]] = []           # (url, motivo)
 
     # 2) Processa cada URL de forma independente: se uma falhar, segue para a próxima.
     for i, url in enumerate(args.urls, start=1):
@@ -206,13 +215,25 @@ def main() -> None:
         try:
             pasta = descobrir_pasta(url, usar_cookies)
 
-            baixar_audio_e_legendas(url, usar_cookies)
+            # O áudio é o essencial. Tentamos baixá-lo já com as legendas; se
+            # essa chamada falhar (ex.: o YouTube bloqueia as legendas com HTTP
+            # 429), repetimos baixando SÓ o áudio, para não perder o conteúdo.
+            try:
+                baixar_audio(url, usar_cookies, com_legendas=True)
+                legendas_ok = True
+            except subprocess.CalledProcessError:
+                print("\nAviso: falha ao baixar legendas; salvando só o áudio.",
+                      file=sys.stderr)
+                baixar_audio(url, usar_cookies, com_legendas=False)
+                legendas_ok = False
+
             if args.video:
                 baixar_video(url, usar_cookies)
 
             destino = str(pasta) if pasta else str(PASTA_BASE)
-            sucessos.append((url, destino))
-            print(f"\nOK: salvo em {destino}")
+            sucessos.append((url, destino, legendas_ok))
+            nota = "" if legendas_ok else " (sem legendas)"
+            print(f"\nOK: salvo em {destino}{nota}")
 
         except subprocess.CalledProcessError as e:
             motivo = f"yt-dlp retornou código {e.returncode}"
@@ -231,8 +252,9 @@ def main() -> None:
 
     if sucessos:
         print("\nBaixados com sucesso:")
-        for url, destino in sucessos:
-            print(f"  [OK] {url}")
+        for url, destino, legendas_ok in sucessos:
+            marca = "OK" if legendas_ok else "OK, sem legendas"
+            print(f"  [{marca}] {url}")
             print(f"       -> {destino}")
 
     if falhas:

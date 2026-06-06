@@ -32,6 +32,17 @@ python baixar.py --video "URL1"
 python baixar.py --no-cookies "URL1"
 ```
 
+## Dica para o YouTube
+
+O YouTube vem exigindo um runtime JavaScript para extrair alguns formatos e
+limita a API de legendas (pode retornar "HTTP 429: Too Many Requests" se muitos
+pedidos forem feitos em sequência). Para melhor compatibilidade:
+
+- Instale o **deno** (runtime JS recomendado pelo yt-dlp): `winget install DenoLand.Deno`
+- Se aparecer 429 nas legendas, espere alguns minutos e rode de novo. O áudio é
+  baixado de qualquer forma — a ferramenta salva o áudio mesmo que as legendas
+  falhem (e avisa "sem legendas" no resumo).
+
 ## Detalhes úteis
 
 - **Login / cookies:** por padrão a ferramenta usa os cookies do Chrome
