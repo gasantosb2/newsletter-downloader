@@ -108,32 +108,33 @@ def args_comuns(usar_cookies: bool) -> list[str]:
 def descobrir_pasta(url: str, usar_cookies: bool) -> Path | None:
     """Consulta o yt-dlp (sem baixar) para descobrir em qual pasta o vídeo cairá.
 
-    Serve para dois propósitos: validar cedo que a URL é acessível e saber o
-    caminho final para mostrar no resumo. Retorna o Path da pasta ou None se a
-    consulta falhar.
+    Tenta com cookies primeiro; se falhar (ex.: Chrome aberto trava o DB),
+    tenta sem cookies. Retorna o Path da pasta ou None se ambos falharem.
     """
-    cmd = args_comuns(usar_cookies) + [
-        "--skip-download",
-        "--print", "filename",
-        "--quiet",
-        "--no-warnings",
-        url,
-    ]
-    try:
-        resultado = subprocess.run(
-            cmd, capture_output=True, text=True, encoding="utf-8"
-        )
-    except Exception:
-        return None
+    tentativas = [usar_cookies, False] if usar_cookies else [False]
+    for cookies in tentativas:
+        cmd = args_comuns(cookies) + [
+            "--skip-download",
+            "--print", "filename",
+            "--quiet",
+            "--no-warnings",
+            url,
+        ]
+        try:
+            resultado = subprocess.run(
+                cmd, capture_output=True, text=True, encoding="utf-8"
+            )
+        except Exception:
+            continue
 
-    if resultado.returncode != 0:
-        return None
+        if resultado.returncode != 0:
+            continue
 
-    # O yt-dlp imprime o caminho completo do arquivo; a pasta é o diretório pai.
-    linha = (resultado.stdout or "").strip().splitlines()
-    if not linha:
-        return None
-    return Path(linha[0]).parent
+        linha = (resultado.stdout or "").strip().splitlines()
+        if linha:
+            return Path(linha[0]).parent
+
+    return None
 
 
 def baixar_audio(url: str, usar_cookies: bool, com_legendas: bool) -> None:
@@ -288,8 +289,21 @@ def main() -> None:
             print(f"\nOK: salvo em {destino}{nota}")
 
             # Transcrição automática: encontra o mp3 baixado e transcreve.
-            if args.transcrever and pasta and pasta.is_dir():
-                mp3s = list(pasta.glob("*.mp3"))
+            # Se pasta for None (descoberta falhou), procura o mp3 mais recente
+            # em qualquer subpasta de downloads/ criada nos últimos 5 minutos.
+            pasta_busca = pasta
+            if args.transcrever and pasta_busca is None:
+                import time as _time
+                agora = _time.time()
+                candidatos = [
+                    p for p in PASTA_BASE.rglob("*.mp3")
+                    if agora - p.stat().st_mtime < 300
+                ]
+                if candidatos:
+                    pasta_busca = max(candidatos, key=lambda p: p.stat().st_mtime).parent
+
+            if args.transcrever and pasta_busca and pasta_busca.is_dir():
+                mp3s = list(pasta_busca.glob("*.mp3"))
                 if mp3s:
                     print(f"\nTranscrevendo {len(mp3s)} arquivo(s)...")
                     # Carrega o modelo uma vez (reaproveita entre URLs se houver várias)
