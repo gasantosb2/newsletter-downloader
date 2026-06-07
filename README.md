@@ -16,8 +16,9 @@ Dentro dela ficam o `.mp3` e o(s) `.srt`.
 - **Python 3** (já instalado).
 - **yt-dlp**: `pip install -U yt-dlp`
 - **ffmpeg**: `winget install ffmpeg` (feche e reabra o terminal depois)
+- **faster-whisper** (só para transcrever): `pip install -U faster-whisper`
 
-O próprio script verifica essas dependências antes de rodar e avisa se faltar alguma.
+Os scripts verificam essas dependências antes de rodar e avisam se faltar alguma.
 
 ## Como rodar
 
@@ -31,6 +32,29 @@ python baixar.py --video "URL1"
 # Desligar o uso dos cookies do Chrome (caso a leitura dê erro)
 python baixar.py --no-cookies "URL1"
 ```
+
+## Transcrever áudio em texto (`transcrever.py`)
+
+O `baixar.py` pega legendas que **já existem** no vídeo. Para transcrever um
+`.mp3` qualquer (mesmo sem legenda), use o `transcrever.py`, que roda o modelo
+Whisper localmente — de graça, offline, sem enviar o áudio para fora.
+
+Para cada áudio, gera ao lado dele um `.txt` (texto corrido) e um `.srt` (com tempos):
+
+```powershell
+# Transcrever um ou mais áudios
+python transcrever.py "downloads\2005-04-24_Me at the zoo\2005-04-24_Me at the zoo.mp3"
+
+# Forçar o idioma (mais rápido/preciso que a detecção automática)
+python transcrever.py --idioma pt "audio.mp3"
+
+# Usar um modelo maior (mais preciso, porém mais lento na CPU)
+python transcrever.py --modelo medium "audio.mp3"
+```
+
+Modelos: `tiny`, `base`, `small` (padrão), `medium`, `large-v3`. Na primeira
+execução, o modelo escolhido é baixado uma única vez. Sem placa de vídeo, áudios
+longos com modelos grandes podem levar alguns minutos.
 
 ## Dica para o YouTube
 
