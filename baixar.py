@@ -251,17 +251,33 @@ def main() -> None:
         try:
             pasta = descobrir_pasta(url, usar_cookies)
 
-            # O áudio é o essencial. Tentamos baixá-lo já com as legendas; se
-            # essa chamada falhar (ex.: o YouTube bloqueia as legendas com HTTP
-            # 429), repetimos baixando SÓ o áudio, para não perder o conteúdo.
-            try:
-                baixar_audio(url, usar_cookies, com_legendas=True)
-                legendas_ok = True
-            except subprocess.CalledProcessError:
-                print("\nAviso: falha ao baixar legendas; salvando só o áudio.",
-                      file=sys.stderr)
-                baixar_audio(url, usar_cookies, com_legendas=False)
-                legendas_ok = False
+            # O áudio é o essencial. Estratégia de fallback em 3 camadas:
+            #   1. Com cookies + legendas  (ideal)
+            #   2. Com cookies, sem legendas  (YouTube bloqueou legendas)
+            #   3. Sem cookies, sem legendas  (Chrome aberto trava o cookie DB)
+            legendas_ok = False
+            baixou = False
+
+            for tentativa_cookies in ([usar_cookies, False] if usar_cookies else [False]):
+                for tentativa_legendas in ([True, False] if not baixou else []):
+                    try:
+                        baixar_audio(url, tentativa_cookies, com_legendas=tentativa_legendas)
+                        legendas_ok = tentativa_legendas
+                        baixou = True
+                        if not tentativa_cookies and usar_cookies:
+                            print("\nAviso: cookies do Chrome inacessíveis (Chrome aberto?); "
+                                  "baixando sem cookies.", file=sys.stderr)
+                        break
+                    except subprocess.CalledProcessError:
+                        if tentativa_legendas:
+                            print("\nAviso: falha ao baixar legendas; tentando só áudio.",
+                                  file=sys.stderr)
+                        # continua para o próximo fallback
+                if baixou:
+                    break
+
+            if not baixou:
+                raise subprocess.CalledProcessError(1, "yt-dlp")
 
             if args.video:
                 baixar_video(url, usar_cookies)
