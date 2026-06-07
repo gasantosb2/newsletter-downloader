@@ -26,6 +26,12 @@ Os scripts verificam essas dependências antes de rodar e avisam se faltar algum
 # Baixar áudio + legendas de um ou mais vídeos
 python baixar.py "URL1" "URL2"
 
+# Baixar E já transcrever (gera .txt e .srt com o Whisper local)
+python baixar.py --transcrever "URL1"
+
+# Forçar idioma e modelo na transcrição automática
+python baixar.py --transcrever --idioma pt --modelo medium "URL1"
+
 # Também salvar o vídeo completo em mp4
 python baixar.py --video "URL1"
 

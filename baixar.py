@@ -195,10 +195,46 @@ def main() -> None:
         action="store_true",
         help="não usar os cookies do Chrome (use se a leitura dos cookies der erro)",
     )
+    parser.add_argument(
+        "--transcrever",
+        action="store_true",
+        help="após baixar o áudio, transcreve automaticamente com o Whisper (gera .txt e .srt)",
+    )
+    parser.add_argument(
+        "--modelo",
+        default="small",
+        help="modelo Whisper para transcrição: tiny, base, small (padrão), medium, large-v3",
+    )
+    parser.add_argument(
+        "--idioma",
+        default=None,
+        help="idioma para transcrição (ex.: pt, en). Sem isso, detecta automaticamente.",
+    )
     args = parser.parse_args()
 
     # 1) Confere as dependências antes de qualquer download.
     verificar_dependencias()
+
+    # Se --transcrever foi pedido, importa o módulo de transcrição agora
+    # (assim o erro de dependência aparece antes de baixar qualquer coisa).
+    if args.transcrever:
+        try:
+            from faster_whisper import WhisperModel as _WhisperModel  # noqa: F401
+        except ImportError:
+            print(
+                "ERRO: --transcrever requer o faster-whisper, que não está instalado.\n"
+                "Instale com:\n"
+                "    pip install -U faster-whisper\n",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        # Importa as funções de transcrever.py do mesmo diretório
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location(
+            "transcrever", Path(__file__).resolve().parent / "transcrever.py"
+        )
+        _transcrever = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+        _spec.loader.exec_module(_transcrever)       # type: ignore[union-attr]
 
     usar_cookies = not args.no_cookies
     PASTA_BASE.mkdir(parents=True, exist_ok=True)
@@ -234,6 +270,33 @@ def main() -> None:
             sucessos.append((url, destino, legendas_ok))
             nota = "" if legendas_ok else " (sem legendas)"
             print(f"\nOK: salvo em {destino}{nota}")
+
+            # Transcrição automática: encontra o mp3 baixado e transcreve.
+            if args.transcrever and pasta and pasta.is_dir():
+                mp3s = list(pasta.glob("*.mp3"))
+                if mp3s:
+                    print(f"\nTranscrevendo {len(mp3s)} arquivo(s)...")
+                    # Carrega o modelo uma vez (reaproveita entre URLs se houver várias)
+                    if "modelo_whisper" not in dir():
+                        from faster_whisper import WhisperModel
+                        print(f"Carregando modelo '{args.modelo}'...")
+                        modelo_whisper = WhisperModel(
+                            args.modelo, device="cpu", compute_type="int8"
+                        )
+                    for mp3 in mp3s:
+                        print(f"  -> Transcrevendo: {mp3.name}")
+                        segmentos_iter, info = modelo_whisper.transcribe(
+                            str(mp3), language=args.idioma, vad_filter=True
+                        )
+                        print(f"     Idioma: {info.language} "
+                              f"({info.language_probability:.0%}) | "
+                              f"{info.duration:.0f}s")
+                        segmentos = list(segmentos_iter)
+                        _transcrever.escrever_saidas(mp3, segmentos)
+                        print(f"     Gerado: {mp3.stem}.txt e {mp3.stem}.srt")
+                else:
+                    print("\nAviso: --transcrever ativo mas nenhum .mp3 encontrado na pasta.",
+                          file=sys.stderr)
 
         except subprocess.CalledProcessError as e:
             motivo = f"yt-dlp retornou código {e.returncode}"
